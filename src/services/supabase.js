@@ -14,16 +14,31 @@ export const signUp = async (email, password, name) => {
       data: { name }
     }
   })
-  
+
+  if (error) {
+    return { data, error }
+  }
+
   if (data.user) {
-    await supabase.from('users').insert({
+    const { error: insertError } = await supabase.from('users').insert({
       id: data.user.id,
       name,
       email,
       role: 'free'
     })
+
+    if (insertError) {
+      console.error('Failed to create user profile:', insertError)
+      return {
+        data,
+        error: {
+          message: 'Account created but failed to set up profile. Please contact support.',
+          details: insertError
+        }
+      }
+    }
   }
-  
+
   return { data, error }
 }
 
