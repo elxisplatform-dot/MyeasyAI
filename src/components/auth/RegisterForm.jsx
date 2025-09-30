@@ -19,12 +19,24 @@ export const RegisterForm = () => {
     setError('')
 
     try {
-      const { error } = await signUp(email, password, name)
-      if (error) throw error
+      const { data, error } = await signUp(email, password, name)
+
+      if (error) {
+        console.error('Registration error:', error)
+        setError(error.message || 'Registration failed. Please try again.')
+        return
+      }
+
+      if (!data) {
+        setError('Registration failed. Please try again.')
+        return
+      }
+
       alert('Registration successful! Welcome to easyAI!')
       navigate('/chat')
     } catch (err) {
-      setError(err.message)
+      console.error('Unexpected registration error:', err)
+      setError(err.message || 'An unexpected error occurred. Please try again.')
     } finally {
       setLoading(false)
     }

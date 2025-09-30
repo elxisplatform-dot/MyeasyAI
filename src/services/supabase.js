@@ -7,39 +7,64 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey)
 
 // Auth helpers
 export const signUp = async (email, password, name) => {
-  const { data, error } = await supabase.auth.signUp({
-    email,
-    password,
-    options: {
-      data: { name }
-    }
-  })
-
-  if (error) {
-    return { data, error }
-  }
-
-  if (data.user) {
-    const { error: insertError } = await supabase.from('users').insert({
-      id: data.user.id,
-      name,
+  try {
+    const { data, error } = await supabase.auth.signUp({
       email,
-      role: 'free'
+      password,
+      options: {
+        data: { name }
+      }
     })
+
+    if (error) {
+      console.error('Auth signup error:', error)
+      return { data: null, error }
+    }
+
+    if (!data.user) {
+      console.error('No user returned from signup')
+      return {
+        data: null,
+        error: new Error('Registration failed. Please try again.')
+      }
+    }
+
+    console.log('Auth user created successfully:', data.user.id)
+
+    const { data: insertData, error: insertError } = await supabase
+      .from('users')
+      .insert({
+        id: data.user.id,
+        name,
+        email,
+        role: 'free'
+      })
+      .select()
+      .single()
 
     if (insertError) {
       console.error('Failed to create user profile:', insertError)
+
+      await supabase.auth.admin.deleteUser(data.user.id).catch(err => {
+        console.error('Failed to cleanup auth user:', err)
+      })
+
       return {
-        data,
-        error: {
-          message: 'Account created but failed to set up profile. Please contact support.',
-          details: insertError
-        }
+        data: null,
+        error: new Error(`Registration failed: ${insertError.message || 'Could not create user profile'}`)
       }
     }
-  }
 
-  return { data, error }
+    console.log('User profile created successfully:', insertData)
+    return { data: { user: data.user, profile: insertData }, error: null }
+
+  } catch (err) {
+    console.error('Unexpected error during signup:', err)
+    return {
+      data: null,
+      error: new Error('An unexpected error occurred. Please try again.')
+    }
+  }
 }
 
 export const signIn = async (email, password) => {
@@ -53,25 +78,51 @@ export const signOut = async () => {
 export const getCurrentUser = async () => {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return null
-  
-  // First, get basic user data without nested subscriptions
+
   const { data: userData, error: userError } = await supabase
     .from('users')
     .select('*')
     .eq('id', user.id)
-    .single()
-  
-  if (userError || !userData) return null
+    .maybeSingle()
 
-  // Then, separately fetch active subscription with plan details
+  if (userError) {
+    console.error('Error fetching user data:', userError)
+    return null
+  }
+
+  if (!userData) {
+    console.log('User profile not found for auth user, attempting to create...')
+
+    const { data: insertData, error: insertError } = await supabase
+      .from('users')
+      .insert({
+        id: user.id,
+        name: user.user_metadata?.name || user.email?.split('@')[0] || 'User',
+        email: user.email,
+        role: 'free'
+      })
+      .select()
+      .single()
+
+    if (insertError) {
+      console.error('Failed to create missing user profile:', insertError)
+      return null
+    }
+
+    console.log('Successfully created missing user profile')
+    return {
+      ...insertData,
+      subscriptions: []
+    }
+  }
+
   const { data: subscriptionData } = await supabase
     .from('subscriptions')
     .select('*, plans(*)')
     .eq('user_id', user.id)
     .eq('status', 'active')
-    .single()
+    .maybeSingle()
 
-  // Combine the data
   return {
     ...userData,
     subscriptions: subscriptionData ? [subscriptionData] : []
