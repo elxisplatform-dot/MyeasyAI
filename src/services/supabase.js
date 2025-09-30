@@ -39,11 +39,26 @@ export const getCurrentUser = async () => {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return null
   
-  const { data: userData } = await supabase
+  // First, get basic user data without nested subscriptions
+  const { data: userData, error: userError } = await supabase
     .from('users')
-    .select('*, subscriptions(*, plans(*))')
+    .select('*')
     .eq('id', user.id)
     .single()
   
-  return userData
+  if (userError || !userData) return null
+
+  // Then, separately fetch active subscription with plan details
+  const { data: subscriptionData } = await supabase
+    .from('subscriptions')
+    .select('*, plans(*)')
+    .eq('user_id', user.id)
+    .eq('status', 'active')
+    .single()
+
+  // Combine the data
+  return {
+    ...userData,
+    subscriptions: subscriptionData ? [subscriptionData] : []
+  }
 }
