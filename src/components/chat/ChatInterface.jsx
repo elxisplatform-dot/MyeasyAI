@@ -10,31 +10,30 @@ import { hasFeatureAccess, FEATURES } from '../../utils/featureAccess'
 import { APP_NAME, APP_DESCRIPTION } from '../../utils/constants'
 
 export const ChatInterface = () => {
-  const { user } = useAuth()
+  const { user, loading: authLoading } = useAuth()
   const [sessionId, setSessionId] = useState(null)
   const [input, setInput] = useState('')
   const [includeInternet, setIncludeInternet] = useState(false)
+  const [sessionLoading, setSessionLoading] = useState(false)
   const messagesEndRef = useRef(null)
   
   // Pass user.id directly, which will be undefined initially and cause the hook to wait
   const { messages, sendMessage, loading, loadChatHistory } = useChat(sessionId, user?.id)
 
   const canUseInternet = hasFeatureAccess(user?.role, FEATURES.INTERNET_SEARCH)
+  const isChatReady = !authLoading && user && sessionId && !sessionLoading
 
-  // --- FIX APPLIED HERE ---
-  // This effect now depends on the `user` object.
-  // It will only run when `user` is loaded and not null.
   useEffect(() => {
-    if (user) {
+    if (user && !sessionId && !sessionLoading) {
       createNewSession()
     }
-  }, [user]) // Dependency on `user` ensures this runs only after user is authenticated
+  }, [user, sessionId, sessionLoading])
 
   useEffect(() => {
-    if (sessionId) {
+    if (sessionId && user?.id) {
       loadChatHistory()
     }
-  }, [sessionId])
+  }, [sessionId, user?.id])
 
   useEffect(() => {
     scrollToBottom()
@@ -45,9 +44,9 @@ export const ChatInterface = () => {
   }
 
   const createNewSession = async () => {
-    // A guard clause is good for extra safety, though the useEffect change is the main fix.
-    if (!user) return;
+    if (!user || sessionLoading) return;
 
+    setSessionLoading(true)
     const { data, error } = await supabase
       .from('chat_sessions')
       .insert({ user_id: user.id, title: 'New Chat' })
@@ -59,11 +58,12 @@ export const ChatInterface = () => {
     } else if (data) {
       setSessionId(data.id)
     }
+    setSessionLoading(false)
   }
 
   const handleSubmit = async (e) => {
     e.preventDefault()
-    if (!input.trim() || loading) return
+    if (!input.trim() || loading || !isChatReady) return
 
     try {
       await sendMessage(input, includeInternet && canUseInternet)
@@ -98,46 +98,65 @@ export const ChatInterface = () => {
         {/* Messages */}
         <div className="flex-1 overflow-y-auto px-4 py-6">
           <div className="max-w-3xl mx-auto space-y-6">
-            <AnimatePresence>
-              {messages.length === 0 ? (
-                <motion.div
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className="text-center py-12"
-                >
-                  <div className="w-20 h-20 bg-gradient-to-br from-blue-500 to-blue-600 rounded-2xl flex items-center justify-center mx-auto mb-6">
-                    <Sparkles className="w-10 h-10 text-white" />
-                  </div>
-                  <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">
-                    Welcome to {APP_NAME}
-                  </h2>
-                  <p className="text-gray-600 dark:text-gray-400 mb-8">
-                    Ask me anything about law, cases, or legal research
-                  </p>
-                  
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-w-2xl mx-auto">
-                    {[
-                      'What is contract law?',
-                      'Explain intellectual property rights',
-                      'Recent court cases on employment law',
-                      'How to file a patent application'
-                    ].map((example, idx) => (
-                      <button
-                        key={idx}
-                        onClick={() => setInput(example)}
-                        className="p-4 text-left bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 hover:border-blue-500 dark:hover:border-blue-500 transition-colors"
-                      >
-                        <p className="text-sm text-gray-700 dark:text-gray-300">{example}</p>
-                      </button>
-                    ))}
-                  </div>
-                </motion.div>
-              ) : (
-                messages.map((message, idx) => (
-                  <ChatMessage key={idx} message={message} />
-                ))
-              )}
-            </AnimatePresence>
+            {!isChatReady ? (
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="text-center py-12"
+              >
+                <div className="w-20 h-20 bg-gradient-to-br from-blue-500 to-blue-600 rounded-2xl flex items-center justify-center mx-auto mb-6">
+                  <div className="animate-spin rounded-full h-10 w-10 border-4 border-white border-t-transparent"></div>
+                </div>
+                <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">
+                  {authLoading ? 'Authenticating...' : sessionLoading ? 'Creating chat session...' : 'Loading...'}
+                </h2>
+                <p className="text-gray-600 dark:text-gray-400">
+                  Please wait while we set up your chat interface
+                </p>
+              </motion.div>
+            ) : (
+              <AnimatePresence>
+                {messages.length === 0 ? (
+                  <motion.div
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="text-center py-12"
+                  >
+                    <div className="w-20 h-20 bg-gradient-to-br from-blue-500 to-blue-600 rounded-2xl flex items-center justify-center mx-auto mb-6">
+                      <Sparkles className="w-10 h-10 text-white" />
+                    </div>
+                    <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">
+                      Welcome to {APP_NAME}
+                    </h2>
+                    <p className="text-gray-600 dark:text-gray-400 mb-8">
+                      Ask me anything about law, cases, or legal research
+                    </p>
+                    
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-w-2xl mx-auto">
+                      {[
+                        'What is contract law?',
+                        'Explain intellectual property rights',
+                        'Recent court cases on employment law',
+                        'How to file a patent application'
+                      ].map((example, idx) => (
+                        <button
+                          key={idx}
+                          onClick={() => setInput(example)}
+                          disabled={!isChatReady}
+                          className="p-4 text-left bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 hover:border-blue-500 dark:hover:border-blue-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          <p className="text-sm text-gray-700 dark:text-gray-300">{example}</p>
+                        </button>
+                      ))}
+                    </div>
+                  </motion.div>
+                ) : (
+                  messages.map((message, idx) => (
+                    <ChatMessage key={idx} message={message} />
+                  ))
+                )}
+              </AnimatePresence>
+            )}
             <div ref={messagesEndRef} />
           </div>
         </div>
@@ -167,12 +186,13 @@ export const ChatInterface = () => {
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 placeholder="Ask about law, cases, or legal topics..."
-                disabled={loading}
+                disabled={!isChatReady}
+                disabled={loading || !isChatReady}
                 className="flex-1 px-4 py-3 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
               <button
                 type="submit"
-                disabled={loading || !input.trim()}
+                disabled={loading || !input.trim() || !isChatReady}
                 className="px-6 py-3 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-lg font-semibold hover:from-blue-600 hover:to-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center gap-2"
               >
                 {loading ? (
