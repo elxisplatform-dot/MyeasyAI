@@ -11,19 +11,29 @@ export const ChatSidebar = ({ sessionId, setSessionId, createNewSession }) => {
   const [sessions, setSessions] = useState([])
   const [searchQuery, setSearchQuery] = useState('')
 
+  // --- FIX APPLIED HERE ---
+  // This effect now depends on the `user` object.
+  // It will only run when `user` is loaded and not null.
   useEffect(() => {
-    loadSessions()
-  }, [])
+    if (user) {
+      loadSessions()
+    }
+  }, [user]) // Dependency on `user` ensures this runs only after user is authenticated
 
   const loadSessions = async () => {
+    // A guard clause is good for extra safety, though the useEffect change is the main fix.
+    if (!user) return;
+
     const { data, error } = await supabase
       .from('chat_sessions')
       .select('*')
-      .eq('user_id', user.id)
+      .eq('user_id', user.id) // This line is now safe
       .order('updated_at', { ascending: false })
       .limit(20)
 
-    if (!error && data) {
+    if (error) {
+      console.error("Error loading sessions:", error)
+    } else if (data) {
       setSessions(data)
     }
   }
@@ -43,6 +53,7 @@ export const ChatSidebar = ({ sessionId, setSessionId, createNewSession }) => {
     return badges[role] || badges.free
   }
 
+  // Use optional chaining `?.` for safety during the initial render when user might be null
   const badge = getTierBadge(user?.role)
 
   const filteredSessions = sessions.filter(s =>
@@ -55,10 +66,12 @@ export const ChatSidebar = ({ sessionId, setSessionId, createNewSession }) => {
       <div className="p-4 border-b border-gray-200 dark:border-gray-700">
         <div className="flex items-center gap-3 mb-3">
           <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center text-white font-bold">
+            {/* Use optional chaining `?.` for safety */}
             {user?.name?.charAt(0).toUpperCase()}
           </div>
           <div className="flex-1 min-w-0">
             <p className="font-semibold text-gray-900 dark:text-white truncate">
+              {/* Use optional chaining `?.` for safety */}
               {user?.name}
             </p>
             <div className="flex items-center gap-2">
@@ -120,6 +133,7 @@ export const ChatSidebar = ({ sessionId, setSessionId, createNewSession }) => {
 
       {/* Footer */}
       <div className="p-4 border-t border-gray-200 dark:border-gray-700 space-y-2">
+        {/* Use optional chaining `?.` for safety */}
         {user?.role === 'free' && (
           <button
             onClick={() => navigate('/pricing')}
