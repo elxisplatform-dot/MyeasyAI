@@ -16,14 +16,19 @@ export const ChatInterface = () => {
   const [includeInternet, setIncludeInternet] = useState(false)
   const messagesEndRef = useRef(null)
   
+  // Pass user.id directly, which will be undefined initially and cause the hook to wait
   const { messages, sendMessage, loading, loadChatHistory } = useChat(sessionId, user?.id)
 
   const canUseInternet = hasFeatureAccess(user?.role, FEATURES.INTERNET_SEARCH)
 
+  // --- FIX APPLIED HERE ---
+  // This effect now depends on the `user` object.
+  // It will only run when `user` is loaded and not null.
   useEffect(() => {
-    // Create new session on mount
-    createNewSession()
-  }, [])
+    if (user) {
+      createNewSession()
+    }
+  }, [user]) // Dependency on `user` ensures this runs only after user is authenticated
 
   useEffect(() => {
     if (sessionId) {
@@ -40,13 +45,18 @@ export const ChatInterface = () => {
   }
 
   const createNewSession = async () => {
+    // A guard clause is good for extra safety, though the useEffect change is the main fix.
+    if (!user) return;
+
     const { data, error } = await supabase
       .from('chat_sessions')
       .insert({ user_id: user.id, title: 'New Chat' })
       .select()
       .single()
 
-    if (!error && data) {
+    if (error) {
+      console.error('Error creating new session:', error)
+    } else if (data) {
       setSessionId(data.id)
     }
   }
