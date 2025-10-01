@@ -93,26 +93,61 @@ export const getCurrentUser = async () => {
   if (!userData) {
     console.log('User profile not found for auth user, attempting to create...')
 
-    const { data: insertData, error: insertError } = await supabase
-      .from('users')
-      .insert({
-        id: user.id,
-        name: user.user_metadata?.name || user.email?.split('@')[0] || 'User',
-        email: user.email,
-        role: 'free'
-      })
-      .select()
-      .single()
+    try {
+      const { data: insertData, error: insertError } = await supabase
+        .from('users')
+        .insert({
+          id: user.id,
+          name: user.user_metadata?.name || user.email?.split('@')[0] || 'User',
+          email: user.email,
+          role: 'free'
+        })
+        .select()
+        .single()
 
-    if (insertError) {
-      console.error('Failed to create missing user profile:', insertError)
+      if (insertError) {
+        // Check if this is a duplicate key error (race condition)
+        if (insertError.code === '23505' && insertError.message?.includes('users_pkey')) {
+          console.log('User profile was created by another process, attempting to fetch...')
+          
+          // Try to fetch the user profile again
+          const { data: refetchedUserData, error: refetchError } = await supabase
+            .from('users')
+            .select('*')
+            .eq('id', user.id)
+            .single()
+
+          if (refetchError || !refetchedUserData) {
+            console.error('Failed to fetch user profile after duplicate key error:', refetchError)
+            return null
+          }
+
+          console.log('Successfully fetched user profile after race condition')
+          const { data: subscriptionData } = await supabase
+            .from('subscriptions')
+            .select('*, plans(*)')
+            .eq('user_id', user.id)
+            .eq('status', 'active')
+            .maybeSingle()
+
+          return {
+            ...refetchedUserData,
+            subscriptions: subscriptionData ? [subscriptionData] : []
+          }
+        }
+        
+        console.error('Failed to create missing user profile:', insertError)
+        return null
+      }
+
+      console.log('Successfully created missing user profile')
+      return {
+        ...insertData,
+        subscriptions: []
+      }
+    } catch (err) {
+      console.error('Unexpected error during user profile creation:', err)
       return null
-    }
-
-    console.log('Successfully created missing user profile')
-    return {
-      ...insertData,
-      subscriptions: []
     }
   }
 
